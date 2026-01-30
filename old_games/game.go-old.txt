@@ -1,0 +1,271 @@
+package cribbage
+
+import (
+	"fmt"
+)
+
+func showHands(p1, p2 Hand) {
+	fmt.Print("Player 1: ")
+	for i := range len(p1) {
+		fmt.Print(p1[i].Rank.String())
+		fmt.Print(p1[i].Suit.String() + "  ")
+		//hand1[i].Color
+	}
+	fmt.Println()
+	fmt.Print("Player 2: ")
+	for i := range len(p2) {
+		fmt.Print(p2[i].Rank.String())
+		fmt.Print(p2[i].Suit.String() + "  ")
+	}
+	fmt.Println()
+}
+
+func (h Hand) Choose(k int) []Hand {
+	var result []Hand
+	var helper func(start int, current Hand)
+
+	helper = func(start int, current Hand) {
+		if len(current) == k {
+			// use a copy to avoid aliasing
+			hh := make(Hand, k)
+			copy(hh, current)
+			result = append(result, hh)
+			return
+		}
+		// 0..2, {}
+		// 1..1, {h[0]}
+		for i := start; i <= len(h)-(k-len(current)); i++ {
+			// 2 - len(current)
+			helper(i+1, append(current, h[i]))
+		}
+	}
+
+	helper(0, Hand{})
+	return result
+}
+
+type DiscardOption struct {
+	Keep    Hand
+	Discard Hand
+}
+
+// Set Difference between a Hand6 and Hand4
+func difference(full Hand, subset Hand) Hand {
+	marked := make(map[Card]int)
+	// mark 4 cards in the player's keep pile
+	for _, card := range subset {
+		marked[card]++
+	}
+
+	// compare to all cards in the player's dealt hand
+	var diff Hand
+	for _, card := range full {
+		if marked[card] > 0 {
+			marked[card]--
+		} else {
+			diff = append(diff, card)
+		}
+	}
+	return diff
+}
+
+// generate all ways to keep 4 and discard 2 at each round
+func split6to4(h Hand) []DiscardOption {
+	if len(h) != 6 {
+		fmt.Printf("Not a dealt hand of 6 cards!")
+		return nil
+	}
+	var options []DiscardOption
+	keepList := h.Choose(4)
+	// check each subslice (keep pile) from 6 choose 4 on the Hand
+	for _, keep := range keepList {
+		// figure out the 2 discarded cards
+		discard := difference(h, keep)
+		options = append(options, DiscardOption{keep, discard})
+	}
+
+	return options
+}
+
+// ----------------------------------------------- //
+
+type DiscardResult struct {
+	Keep    Hand
+	Discard Hand
+	EV      float64
+}
+
+/*
+func expectedValue(h Hand) {
+
+}
+
+	func (h Hand) analyzeDiscard() (Card, Card) {
+		// foreach in h.Choose, keep track of what was discarded
+		// and its resulting expected points
+		// expected points is by Score with each possible cut
+		// placeholder
+		return h[0], h[1]
+	}
+*/
+func (h Hand) AnalyzeDiscards(deck []Card, isCrib bool) []DiscardResult {
+	results := []DiscardResult{}
+
+	for _, keep := range h.Choose(4) {
+		discard := difference(h, keep)
+		used := append(h, discard...)
+		remaining := RemainingDeck(deck, used)
+
+		ev := ExpectedValue(keep, remaining, isCrib)
+
+		results = append(results, DiscardResult{
+			Keep:    keep,
+			Discard: discard,
+			EV:      ev,
+		})
+	}
+
+	return results
+}
+
+// not used, Deal() will already show us the remaining
+func RemainingDeck(deck []Card, used []Card) []Card {
+	// mark all cards that are in player Hands
+	usedSet := make(map[Card]bool)
+	for _, c := range used {
+		usedSet[c] = true
+	}
+
+	// use all remaining cards as the next possible Cut Card
+	rem := make([]Card, 0)
+	for _, c := range deck {
+		if !usedSet[c] {
+			rem = append(rem, c)
+		}
+	}
+	return rem
+}
+
+func ExpectedValue(keep Hand, remaining []Card, isCrib bool) float64 {
+	total := 0
+
+	for _, cut := range remaining {
+		total += keep.Score(cut, isCrib)
+	}
+
+	return float64(total) / float64(len(remaining))
+}
+
+// ----------------------------------------------- //
+
+type Player interface {
+	Name() string
+	Discard(hand Hand) Hand
+	PlayPegCard(state PegState) Card
+}
+
+type ComputerPlayer struct {
+	name     string
+	hand     Hand
+	score    int
+	isDealer bool
+}
+
+func (p *ComputerPlayer) Name() string {
+	return p.name
+}
+
+func (p *ComputerPlayer) Discard(h Hand) Hand {
+	// TODO simple placeholder
+	return h[:2]
+}
+
+func (p *ComputerPlayer) PlayPegCard(s PegState) Card {
+	// TODO naive
+	return s.Hand[0]
+	//return p.hand[0]
+}
+
+type Game struct {
+	Deck    Deck
+	Players [2]Player
+	Scores  [2]int
+	Dealer  int
+}
+
+func (g *Game) Play() {
+	for g.Scores[0] < 121 && g.Scores[1] < 121 {
+		g.playRound()
+		g.Dealer = 1 - g.Dealer
+	}
+}
+
+func (g *Game) playRound() {
+	g.Deck.Shuffle()
+
+	hand1, hand2, remaining := Deal(g.Deck)
+
+	hands := []Hand{hand1, hand2}
+
+	crib := Hand{}
+	for i, p := range g.Players {
+		discard := p.Discard(hands[i])
+		crib = append(crib, discard...)
+		hands[i] = difference(hands[i], discard)
+	}
+
+	cut := remaining[0]
+
+	// score hands
+	for i := range hands {
+		g.Scores[i] += hands[i].Score(cut, false)
+	}
+
+	// score crib
+	g.Scores[g.Dealer] += crib.Score(cut, true)
+}
+
+// ------------------------------------------------------------ //
+
+func Start() {
+	var myDeck Deck
+	myDeck = NewDeck()
+	myDeck.Shuffle()
+	// 2 random cards, lower gets crib first
+
+	for i := 0; i < 3; i++ {
+		fmt.Printf("------------------------------\n")
+		fmt.Printf("-----     Round %d       -----\n", i+1)
+		fmt.Printf("------------------------------\n")
+		myDeck.Shuffle()
+		hand1, hand2, remaining := Deal(myDeck)
+		//showHands(hand1, hand2)
+		//fmt.Println()
+
+		//var crib []Card = make([]Card, 4, 4)
+		//crib := append(hand1[:2], hand2[:2]...)
+
+		hand1 = hand1[2:]
+		hand2 = hand2[2:]
+		fmt.Println("Cut Card: " + remaining[0].Rank.String() + remaining[0].Suit.String())
+		showHands(hand1, hand2)
+		fmt.Println()
+
+		//fmt.Printf("Player 1: %d points\n\n", hand1.Score(Card{Ace, Spades, Black}, true))
+		printBreakdown := true
+		sb1 := hand1.ScoreBreakdown(remaining[0], true)
+		sb2 := hand2.ScoreBreakdown(remaining[0], false)
+
+		fmt.Printf("Player 1: %d points\n", sb1.Total)
+		if printBreakdown {
+			sb1.Print()
+			//fmt.Println()
+		}
+
+		fmt.Printf("Player 2: %d points\n", sb2.Total)
+		if printBreakdown {
+			sb2.Print()
+			//fmt.Println()
+		}
+	}
+}

@@ -1,0 +1,481 @@
+package cribbage
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
+
+func (h Hand) Print(name string) {
+	fmt.Printf("%s: ", name)
+	for i := range len(h) {
+		fmt.Print(h[i].Rank.String())
+		fmt.Print(h[i].Suit.String() + "  ")
+	}
+	fmt.Println()
+}
+
+func ShowCardDeal(p1, p2 Player) {
+	p1.GetHand().Print(p1.GetName())
+	p2.GetHand().Print(p2.GetName())
+	/*
+		fmt.Print("Player 1: ")
+		for i := range len(p1) {
+			fmt.Print(p1[i].Rank.String())
+			fmt.Print(p1[i].Suit.String() + "  ")
+			//hand1[i].Color
+		}
+		fmt.Println()
+		fmt.Print("Player 2: ")
+		for i := range len(p2) {
+			fmt.Print(p2[i].Rank.String())
+			fmt.Print(p2[i].Suit.String() + "  ")
+		}
+		fmt.Println()
+	*/
+}
+
+func (h Hand) Choose(k int) []Hand {
+	var result []Hand
+	var helper func(start int, current Hand)
+
+	helper = func(start int, current Hand) {
+		if len(current) == k {
+			// use a copy to avoid aliasing
+			hh := make(Hand, k)
+			copy(hh, current)
+			result = append(result, hh)
+			return
+		}
+		// 0..2, {}
+		// 1..1, {h[0]}
+		for i := start; i <= len(h)-(k-len(current)); i++ {
+			// 2 - len(current)
+			helper(i+1, append(current, h[i]))
+		}
+	}
+
+	helper(0, Hand{})
+	return result
+}
+
+type DiscardOption struct {
+	Keep    Hand
+	Discard Hand
+}
+
+// Set Difference between a Hand6 and Hand4
+func difference(full Hand, subset Hand) Hand {
+	marked := make(map[Card]int)
+	// mark 4 cards in the player's keep pile
+	for _, card := range subset {
+		marked[card]++
+	}
+
+	// compare to all cards in the player's dealt hand
+	var diff Hand
+	for _, card := range full {
+		if marked[card] > 0 {
+			marked[card]--
+		} else {
+			diff = append(diff, card)
+		}
+	}
+	return diff
+}
+
+// generate all ways to keep 4 and discard 2 at each round
+func split6to4(h Hand) []DiscardOption {
+	if len(h) != 6 {
+		fmt.Printf("Not a dealt hand of 6 cards!")
+		return nil
+	}
+	var options []DiscardOption
+	keepList := h.Choose(4)
+	// check each subslice (keep pile) from 6 choose 4 on the Hand
+	for _, keep := range keepList {
+		// figure out the 2 discarded cards
+		discard := difference(h, keep)
+		options = append(options, DiscardOption{keep, discard})
+	}
+
+	return options
+}
+
+// ----------------------------------------------- //
+
+type DiscardResult struct {
+	Keep          Hand
+	Discard       Hand
+	ExpectedValue float64
+}
+
+/*
+func expectedValue(h Hand) {
+
+}
+
+	func (h Hand) analyzeDiscard() (Card, Card) {
+		// foreach in h.Choose, keep track of what was discarded
+		// and its resulting expected points
+		// expected points is by Score with each possible cut
+		// placeholder
+		return h[0], h[1]
+	}
+*/
+
+/*func (h Hand) AnalyzeDiscards(deck []Card, isCrib bool) []DiscardResult {
+	results := []DiscardResult{}
+
+	for _, keep := range h.Choose(4) {
+		discard := difference(h, keep)
+		used := append(h, discard...)
+		remaining := RemainingDeck(deck, used)
+
+		ev := ExpectedValue(keep, remaining, isCrib)
+
+		results = append(results, DiscardResult{
+			Keep:    keep,
+			Discard: discard,
+			ExpectedValue:      ev,
+		})
+	}
+
+	return results
+}
+*/
+
+func ExpectedValue(keep Hand, remaining []Card, isCrib bool) float64 {
+	total := 0
+	for _, cut := range remaining {
+		total += keep.Score(cut, isCrib)
+	}
+	return float64(total) / float64(len(remaining))
+}
+
+// ------------------------------------------------------------ //
+
+type Player interface {
+	// 2 discard and 4 in hand
+	Discard(hand Hand) (Hand, Hand)
+	PlayPegCard(state PegState) (Card, bool)
+	GetHand() Hand
+	SetHand(h Hand)
+	AddPoints(n int)
+	GetName() string
+}
+
+type ComputerPlayer struct {
+	Name   string
+	Hand   Hand
+	Points int
+	//IsDealer bool
+}
+
+func (p *ComputerPlayer) GetName() string {
+	return p.Name
+}
+
+func (p *ComputerPlayer) GetHand() Hand {
+	return p.Hand
+}
+
+func (p *ComputerPlayer) SetHand(h Hand) {
+	p.Hand = h
+}
+
+func (p *ComputerPlayer) AddPoints(n int) {
+	p.Points += n
+}
+
+func (p *ComputerPlayer) Discard(h Hand) (Hand, Hand) {
+	// TODO simple placeholder
+	return h[:2], h[2:]
+
+	/*
+		options := split6to4(hand)
+		best := options[0]
+		for _, opt := range options {
+			ev := ExpectedValue(opt.Keep, remaining, false)
+			if ev > bestEV {
+				best = opt
+			}
+		}
+		return best.Discard
+	*/
+}
+
+func (p *ComputerPlayer) PlayPegCard(s PegState) (Card, bool) {
+	// TODO naive: consider run, in a row, 15, 31, ?predict other player?
+	// send first valid card
+	for i, card := range p.Hand {
+		if card.ValueMax10() <= 31-s.Sum {
+			//return PegMove{c, false}
+			p.Hand = slices.Delete(p.Hand, i, i+1)
+			return card, false
+		}
+	}
+	// no valid card, Go/pass
+	return Card{}, true
+}
+
+// ------------------------------------------------------------ //
+
+type Game struct {
+	Deck          Deck
+	Players       [2]Player
+	OriginalHands [2]Hand
+	//Scores  [2]int
+	//OGhands [2]Hand
+	Dealer int
+}
+
+func (g *Game) Play() {
+	fmt.Println("\nWelcome to CRIBBAGE DONASSIC")
+	fmt.Print("Watch two computers play it!!!\n\n")
+
+	roundNum := 0
+	for g.Scores[0] < 121 && g.Scores[1] < 121 {
+		g.PlayRound(roundNum)
+		g.Dealer = 1 - g.Dealer
+		roundNum++
+	}
+	/*if g.Scores[0] > g.Scores[1] {
+		fmt.Printf("%s won!", g.Players[0].GetName())
+	} else {
+		fmt.Printf("%s won!", g.Players[1].GetName())
+	}
+	*/
+	//return g.Scores[0], g.Scores[1]
+}
+func (g *Game) AddShowPoints(ponePoints, dealPoints ScoreBreakdown) (gameOver bool, winner int) {
+	pone := 1 - g.Dealer
+
+	fmt.Printf("%s: %d points\n", g.Players[pone].GetName(), ponePoints.Total)
+	ponePoints.Print()
+	g.Scores[pone] += ponePoints.Total
+	if g.Scores[pone] >= 121 {
+		//fmt.Printf("%s won!\n", Players[pone].GetName())
+		return true, pone
+	}
+
+	fmt.Printf("%s: %d points\n", g.Players[g.Dealer].GetName(), dealPoints.Total)
+	dealPoints.Print()
+	g.Scores[g.Dealer] += dealPoints.Total
+	if g.Scores[g.Dealer] >= 121 {
+		return true, g.Dealer
+	}
+	return false, 0
+}
+
+func (g *Game) PrintPoints(msg string) {
+	//TOTAL POINTS
+	msg = fmt.Sprintf("--- %s ---", msg)
+	fmt.Println(msg)
+	for i, player := range g.Players {
+		fmt.Printf("%s: %d points\n", player.GetName(), g.Scores[i])
+	}
+	fmt.Printf("%s\n", strings.Repeat("-", len(msg)))
+}
+
+func (game *Game) Winner(winner int) (out string) {
+	loser := 1 - winner
+	diff := game.Scores[winner] - game.Scores[loser]
+
+	out = fmt.Sprintf("%s won", game.Players[winner].GetName())
+	if diff > 60 {
+		out += " (Double Skunk)."
+	} else if diff > 30 {
+		out += " (Skunk)."
+	}
+	out += fmt.Sprintf("\nGood Game %s!\n", game.Players[loser].GetName())
+	return
+}
+
+func (game *Game) PlayRound(round int) {
+	game.Deck.Shuffle()
+	hand1, hand2, remainingDeck := Deal(game.Deck)
+	game.Players[0].SetHand(hand1)
+	game.Players[1].SetHand(hand2)
+	// 12 cards across 2 players and crib hand
+	hands := []Hand{hand1, hand2}
+	crib := Hand{}
+	pone := 1 - game.Dealer
+
+	fmt.Printf("Round #%d:\n", round+1)
+	//ShowCardDeal(game.Players[0], game.Players[1])
+
+	for i, player := range game.Players {
+		// TODO combine hands and player.Hand to discard correctly?
+		discard, keep := player.Discard(hands[i])
+		crib = append(crib, discard...)
+		//hands[i] = difference(hands[i], discard)
+		hands[i] = keep
+		//game.OGhands[i] = keep
+		copy(game.OGhands[i], keep)
+	}
+	cut := remainingDeck[0]
+
+	fmt.Printf("Cut Card: %s\n", cut)
+	if cut.Rank == Jack {
+		fmt.Printf("%s scores +2 [Nibs]\n", game.Players[game.Dealer].GetName())
+		game.Players[game.Dealer].AddPoints(2)
+		game.Scores[game.Dealer] += 2
+		// TODO goddan Addpoints does check for gamewon.... >;(((
+	}
+
+	/*for i, player := range game.Players {
+		hands[i].Print(player.GetName() + " hand")
+	}
+	*/
+
+	// Player's Hand goes empty after pegging completes, save scores to add later
+	ponePoints := hands[pone].ScoreBreakdown(cut, false)
+	dealerPoints := hands[game.Dealer].ScoreBreakdown(cut, false)
+
+	fmt.Printf("\n--- PEGGING ROUND ---\n")
+	fmt.Printf("Dealer: %s\nPone leads\n\n", game.Players[game.Dealer].GetName())
+	//fmt.Printf("%s\n", strings.Repeat("-", len("--- PEGGING ROUND ---")))
+	game.PeggingRound() //game.Players, &game.Scores, game.Dealer)
+	game.PrintPoints("AFTER PEGGING")
+
+	// Score Hands: Pone will count points first
+	fmt.Printf("\n--- SHOW ROUND ---\n")
+	fmt.Printf("Cut Card: %s\n", cut)
+	for i, player := range game.Players {
+		game.OGhands[i].Print(player.GetName() + " hand")
+	}
+	fmt.Println()
+	// TODO refactor printing to be individual after Hand
+	// also prints ScoreBreakdown
+	gameWon, winner := game.AddShowPoints(ponePoints, dealerPoints)
+
+	if gameWon {
+		//defer fmt.Printf("\n%s won. Good Game %s! [1]", game.Players[winner].GetName())
+		defer fmt.Print(game.Winner(winner))
+
+	} else {
+		// both Players are below 121 points, continue
+		// Dealer scores crib
+		fmt.Printf("\nCut Card: %s%s\n", cut.Rank, cut.Suit)
+		crib.Print("Crib")
+		cribPoints := crib.ScoreBreakdown(cut, true)
+		fmt.Printf("%s: %d points\n", game.Players[game.Dealer].GetName(), cribPoints.Total)
+		cribPoints.Print()
+		game.Scores[game.Dealer] += cribPoints.Total
+
+		if game.Scores[game.Dealer] >= 121 {
+			defer fmt.Print(game.Winner(game.Dealer))
+		}
+	}
+	fmt.Println()
+	game.PrintPoints("AFTER SHOW")
+	fmt.Println()
+}
+
+func EmptyHands(players [2]Player) bool {
+	h1, h2 := players[0].GetHand(), players[1].GetHand()
+	return len(h1) == 0 && len(h2) == 0
+}
+
+// Players try to place all of their cards on the pile
+// Once the score goes above 31, start a new pile
+func (game *Game) PeggingRound() {
+	//func PeggingRound(players [2]Player, scores *[2]int, dealer int) {
+	dealer := game.Dealer
+	players := &game.Players
+
+	state := PegState{
+		Sum:       0,
+		Turn:      1 - dealer, // pone places first card
+		CardStack: make([]Card, 0),
+	}
+
+	fmt.Printf("(Pegging Pile 1)\n")
+	for !EmptyHands(*players) {
+		// assume another skip if Player previously passed
+		if state.Passed[state.Turn] {
+			//fmt.Printf(" %s: Go!\n", players[state.Turn].GetName())
+			//mt.Printf("%s says GO\n\n", players[state.Turn].GetName())
+			state.Turn = 1 - state.Turn
+			continue
+		}
+
+		fmt.Printf("Sum: %d\n", state.Sum)
+		for _, c := range state.CardStack {
+			fmt.Printf("%s ", c)
+		}
+		fmt.Println("[?]")
+
+		card, passed := players[state.Turn].PlayPegCard(state)
+		if passed {
+			fmt.Printf("%s says GO", players[state.Turn].GetName())
+			state.Passed[state.Turn] = true
+		} else {
+			fmt.Printf("%s plays %s", players[state.Turn].GetName(), card)
+			state.AddCard(card)
+			//fmt.Printf("\t(Sum = %d)", state.Sum)
+			points, msg := ScorePeggingPlay(&state, card)
+			if points > 0 {
+				fmt.Print(msg)
+				players[state.Turn].AddPoints(points)
+				game.Scores[state.Turn] += points
+			}
+		}
+
+		if state.ShouldReset() {
+			// give points for last card
+			// points for 31 is in ScorePeggingPlay in pegging.go
+			if state.Sum != 31 {
+				fmt.Printf("\n%s scores +1 [Last Card]", players[state.LastPlayer].GetName())
+				//fmt.Printf("  +1 [Last Card]")
+				players[state.LastPlayer].AddPoints(1)
+				game.Scores[state.LastPlayer] += 1
+			}
+			fmt.Printf("\n\n")
+			state.Reset()
+			fmt.Printf("(Peg Pile %d)\n", state.PileNum+1)
+		} else {
+			fmt.Printf("\n\n")
+		}
+
+		state.Turn = 1 - state.Turn
+	}
+
+	if state.Sum != 0 {
+		// above loop ends after both hands are empty
+		// sum is zero after 31 or if both Players Go
+		fmt.Printf("%s scores +1 [Last Card]\n\n", players[state.LastPlayer].GetName())
+		// TODO is this double counting??
+		players[state.LastPlayer].AddPoints(1)
+		game.Scores[state.LastPlayer] += 1
+	}
+}
+
+// ------------------------------------------------------------ //
+
+func NewComputerGame() *Game {
+	p1 := &ComputerPlayer{
+		Name:     "COM 1",
+		Points:   0,
+		IsDealer: true,
+	}
+
+	p2 := &ComputerPlayer{
+		Name:     "COM 2",
+		Points:   0,
+		IsDealer: false,
+	}
+
+	return &Game{
+		Deck:    NewDeck(),
+		Players: [2]Player{p1, p2},
+		Scores:  [2]int{0, 0},
+		Dealer:  0,
+	}
+}
+
+func Start() {
+	game := NewComputerGame()
+	game.Play()
+}

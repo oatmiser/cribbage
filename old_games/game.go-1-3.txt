@@ -1,0 +1,662 @@
+package cribbage
+
+import (
+	"fmt"
+	"slices"
+)
+
+func (h Hand) Print(name string) {
+	fmt.Printf("%s: ", name)
+	for i := range len(h) {
+		fmt.Print(h[i].Rank.String())
+		fmt.Print(h[i].Suit.String() + "  ")
+	}
+	fmt.Println()
+}
+
+func ShowCardDeal(p1, p2 Player) {
+	p1.GetHand().Print(p1.GetName())
+	p2.GetHand().Print(p2.GetName())
+	/*
+		fmt.Print("Player 1: ")
+		for i := range len(p1) {
+			fmt.Print(p1[i].Rank.String())
+			fmt.Print(p1[i].Suit.String() + "  ")
+			//hand1[i].Color
+		}
+		fmt.Println()
+		fmt.Print("Player 2: ")
+		for i := range len(p2) {
+			fmt.Print(p2[i].Rank.String())
+			fmt.Print(p2[i].Suit.String() + "  ")
+		}
+		fmt.Println()
+	*/
+}
+
+func (h Hand) Choose(k int) []Hand {
+	var result []Hand
+	var helper func(start int, current Hand)
+
+	helper = func(start int, current Hand) {
+		if len(current) == k {
+			// use a copy to avoid aliasing
+			hh := make(Hand, k)
+			copy(hh, current)
+			result = append(result, hh)
+			return
+		}
+		// 0..2, {}
+		// 1..1, {h[0]}
+		for i := start; i <= len(h)-(k-len(current)); i++ {
+			// 2 - len(current)
+			helper(i+1, append(current, h[i]))
+		}
+	}
+
+	helper(0, Hand{})
+	return result
+}
+
+type DiscardOption struct {
+	Keep    Hand
+	Discard Hand
+}
+
+// Set Difference between a Hand6 and Hand4
+func difference(full Hand, subset Hand) Hand {
+	marked := make(map[Card]int)
+	// mark 4 cards in the player's keep pile
+	for _, card := range subset {
+		marked[card]++
+	}
+
+	// compare to all cards in the player's dealt hand
+	var diff Hand
+	for _, card := range full {
+		if marked[card] > 0 {
+			marked[card]--
+		} else {
+			diff = append(diff, card)
+		}
+	}
+	return diff
+}
+
+// generate all ways to keep 4 and discard 2 at each round
+func split6to4(h Hand) []DiscardOption {
+	if len(h) != 6 {
+		fmt.Printf("Not a dealt hand of 6 cards!")
+		return nil
+	}
+	var options []DiscardOption
+	keepList := h.Choose(4)
+	// check each subslice (keep pile) from 6 choose 4 on the Hand
+	for _, keep := range keepList {
+		// figure out the 2 discarded cards
+		discard := difference(h, keep)
+		options = append(options, DiscardOption{keep, discard})
+	}
+
+	return options
+}
+
+// ----------------------------------------------- //
+
+type DiscardResult struct {
+	Keep          Hand
+	Discard       Hand
+	ExpectedValue float64
+}
+
+/*
+func expectedValue(h Hand) {
+
+}
+
+	func (h Hand) analyzeDiscard() (Card, Card) {
+		// foreach in h.Choose, keep track of what was discarded
+		// and its resulting expected points
+		// expected points is by Score with each possible cut
+		// placeholder
+		return h[0], h[1]
+	}
+*/
+
+/*func (h Hand) AnalyzeDiscards(deck []Card, isCrib bool) []DiscardResult {
+	results := []DiscardResult{}
+
+	for _, keep := range h.Choose(4) {
+		discard := difference(h, keep)
+		used := append(h, discard...)
+		remaining := RemainingDeck(deck, used)
+
+		ev := ExpectedValue(keep, remaining, isCrib)
+
+		results = append(results, DiscardResult{
+			Keep:    keep,
+			Discard: discard,
+			ExpectedValue:      ev,
+		})
+	}
+
+	return results
+}
+*/
+
+func ExpectedValue(keep Hand, remaining []Card, isCrib bool) float64 {
+	total := 0
+	for _, cut := range remaining {
+		total += keep.Score(cut, isCrib)
+	}
+	return float64(total) / float64(len(remaining))
+}
+
+// ----------------------------------------------- //
+
+type PegState struct {
+	Sum        int // pegging up to 31
+	Turn       int
+	LastPlayer int // last player to place a card
+	CardStack  Hand
+	//Hand1 	 Hand
+	//Hand2      Hand
+	//Passed1 bool // player said "Go"
+	//Passed2 bool
+	Passed [2]bool
+}
+
+func TrailingMultiple(pegStack Hand) int {
+	if len(pegStack) < 2 {
+		return 0
+	}
+	last := pegStack[len(pegStack)-1].Rank
+	count := 1
+
+	for i := len(pegStack) - 2; i >= 0; i-- {
+		if pegStack[i].Rank != last {
+			break
+		}
+		count++
+	}
+
+	return count
+}
+
+func ScorePegPairs(stack Hand) int {
+	switch TrailingMultiple(stack) {
+	case 2:
+		return 2
+	case 3:
+		return 6
+	case 4:
+		return 12
+	default:
+		// impossible!
+		return 0
+	}
+}
+
+func ScorePegRuns(stack Hand) int {
+	if len(stack) < 3 {
+		return 0
+	}
+
+	for n := len(stack); n >= 3; n-- {
+		// first run to be witnessed will have the most points
+		topN := stack[len(stack)-n:]
+		// break if a duplicate Rank is seen
+		seen := make(map[int]bool)
+		// run from X to Y will be of length Y-X+1...
+		// run can be counted only in the topN cards (max-min+1==n)
+		max := Card{Rank: Ace}.Value()
+		min := Card{Rank: King}.Value()
+
+		//fmt.Printf("scoring top %d cards\n", n)
+		for _, card := range topN {
+			r := int(card.Rank)
+			//fmt.Printf("Rank %d", r)
+			if seen[r] {
+				// continue in outer loop...
+				// next topN (smaller) may have a valid run without the duplicate
+				//fmt.Printf("\tduplicate!\n")
+				goto next
+			}
+			fmt.Println()
+			seen[r] = true
+
+			if r < min {
+				//fmt.Printf("new min of %d", min)
+				min = r
+			}
+			if r > max {
+				//fmt.Printf("new max of %d", max)
+				max = r
+			}
+		}
+
+		if max-min+1 == n {
+			//fmt.Printf("got %d points\n", n)
+			return n
+		}
+
+	next:
+	}
+	//fmt.Printf("got 0 points\n\n")
+	return 0
+}
+
+func ScorePegRuns2(pegStack Hand) int {
+	// order doesn't matter, stop once a Rank stops the run
+	if len(pegStack) < 3 {
+		return 0
+	}
+
+	maxRun := 0
+	for n := 3; n <= len(pegStack); n++ {
+		// look for run of n, then n+1 etc
+		slice := pegStack[len(pegStack)-n:]
+		seen := make(map[int]bool)
+		min := Card{Rank: Ace}.Value()
+		max := Card{Rank: King}.Value()
+
+		for _, card := range slice {
+			r := int(card.Rank)
+			if seen[r] {
+				goto next
+			}
+			seen[r] = true
+
+			if r < min {
+				min = r
+			}
+			if r > max {
+				max = r
+			}
+		}
+
+		if max-min == n-1 {
+			maxRun = n
+		}
+	next:
+	}
+
+	return maxRun
+}
+
+func ScorePeggingPlay(s *PegState, c Card) int {
+	// state was ALREADY changed with card c
+	points := 0
+	if s.Sum == 15 || s.Sum == 31 {
+		points += 2
+	}
+	points += ScorePegPairs(s.CardStack)
+	points += ScorePegRuns(s.CardStack)
+	// TODO this is wrong bruh
+	/*if s.ShouldReset() && s.Sum != 31 {
+		points += 1
+	}
+	*/
+	// last card or 31 is in Reset()
+	return points
+}
+
+func (s *PegState) AddCard(c Card) {
+	// TODO add scoring for 15, 31, in a row, run, last card
+	if s.Sum+c.ValueMax10() > 31 {
+		fmt.Printf("TODO over 31")
+	}
+	s.Sum += c.ValueMax10()
+	s.CardStack = append(s.CardStack, c)
+	s.LastPlayer = s.Turn
+	// call ScorePlay?
+}
+
+func (s *PegState) ShouldReset() bool {
+	// TODO points for last card and ?include 31 here?
+	if s.Sum == 31 {
+		return true
+	}
+	return s.Passed[0] && s.Passed[1]
+}
+
+func (s *PegState) Reset() {
+	s.Sum = 0
+	s.Passed = [2]bool{}
+	s.Turn = s.LastPlayer
+	s.CardStack = make([]Card, 0)
+}
+
+/*
+	type PegMove struct {
+		Card   Card
+		Passed bool
+	}
+*/
+type Player interface {
+	// 2 discarded and 4 remain
+	Discard(hand Hand) (Hand, Hand)
+	PlayPegCard(state PegState) (Card, bool)
+	GetHand() Hand
+	AddPoints(n int)
+	GetName() string
+	SetHand(h Hand)
+}
+
+type ComputerPlayer struct {
+	Name     string
+	Hand     Hand
+	Points   int
+	IsDealer bool
+}
+
+/*func (p *ComputerPlayer) Name() string {
+	return p.name
+}
+*/
+
+func (p *ComputerPlayer) Discard(h Hand) (Hand, Hand) {
+	// TODO simple placeholder
+	return h[:2], h[2:]
+
+	/*
+		options := split6to4(hand)
+		best := options[0]
+		for _, opt := range options {
+			ev := ExpectedValue(opt.Keep, remaining, false)
+			if ev > bestEV {
+				best = opt
+			}
+		}
+		return best.Discard
+	*/
+}
+
+func (p *ComputerPlayer) PlayPegCard(s PegState) (Card, bool) {
+	// TODO naive: consider run, in a row, 15, 31, ?predict other player?
+	//return s.RemainingHands[0][0]
+	/*if len(p.Hand) == 0 {
+		// Go
+		return PegMove{Card{}, true}
+	}
+	*/
+	// send first valid card
+	for i, card := range p.Hand {
+		if card.ValueMax10() <= 31-s.Sum {
+			//return PegMove{c, false}
+			p.Hand = slices.Delete(p.Hand, i, i+1)
+			return card, false
+		}
+	}
+	// no valid card, Go
+	//return PegMove{Card{}, true}
+	return Card{}, true
+	/*play := p.hand[0]
+	p.hand = p.hand[1:]
+	return play
+	*/
+}
+
+func (p *ComputerPlayer) GetHand() Hand {
+	return p.Hand
+}
+
+func (p *ComputerPlayer) AddPoints(n int) {
+	p.Points += n
+}
+
+func (p *ComputerPlayer) GetName() string {
+	return p.Name
+}
+
+func (p *ComputerPlayer) SetHand(h Hand) {
+	p.Hand = h
+}
+
+type Game struct {
+	Deck    Deck
+	Players [2]Player
+	Scores  [2]int
+	Dealer  int
+}
+
+func (g *Game) Play() {
+	for g.Scores[0] < 121 && g.Scores[1] < 121 {
+		g.PlayRound()
+		g.Dealer = 1 - g.Dealer
+	}
+
+	if g.Scores[0] > g.Scores[1] {
+		fmt.Printf("%s won!", g.Players[0].GetName())
+	} else {
+		fmt.Printf("%s won!", g.Players[1].GetName())
+	}
+}
+
+func (game *Game) PlayRound() {
+	game.Deck.Shuffle()
+	hand1, hand2, remainingDeck := Deal(game.Deck)
+	game.Players[0].SetHand(hand1)
+	game.Players[1].SetHand(hand2)
+
+	// 12 cards across 2 players and crib hand
+	hands := []Hand{hand1, hand2}
+	crib := Hand{}
+
+	/*if game.Dealer == 0 {
+		discard := player[0].Discard
+	}
+	*/
+	for i, player := range game.Players {
+		discard, keep := player.Discard(hands[i])
+		crib = append(crib, discard...)
+		//hands[i] = difference(hands[i], discard)
+		hands[i] = keep
+	}
+
+	cut := remainingDeck[0]
+
+	//fmt.Println("Cut Card: " + cut.Rank.String() + cut.Suit.String())
+	fmt.Printf("Cut Card: %s%s\n", cut.Rank, cut.Suit)
+	ShowCardDeal(game.Players[0], game.Players[1])
+	//showHands(hand1, hand2)
+	//showHands(hands[0], hands[1])
+	for i, player := range game.Players {
+		hands[i].Print(player.GetName() + " hand")
+	}
+	//fmt.Println()
+
+	// Player's Hand goes empty after pegging completes, save scores to add after
+	//ponePoints := game.Players[1-game.Dealer].GetHand().ScoreBreakdown(cut, false)
+	//dealerPoints := game.Players[game.Dealer].GetHand().ScoreBreakdown(cut, false)
+	ponePoints := hands[1-game.Dealer].ScoreBreakdown(cut, false)
+	dealerPoints := hands[game.Dealer].ScoreBreakdown(cut, false)
+
+	/*breakdown := make([]ScoreBreakdown, 2)
+	for i, player := range game.Players {
+		isDealer := i == game.Dealer
+		breakdown[i] = player.GetHand().ScoreBreakdown(cut, isDealer)
+	}
+	*/
+
+	PeggingRound(game.Players, &game.Scores, game.Dealer)
+
+	ponePoints.Print()
+	fmt.Println()
+	dealerPoints.Print()
+
+	// Score Hands, Pone should count points first
+	game.Scores[1-game.Dealer] += ponePoints.Total
+	// TODO if >121 then GameWin(). I like to allow all points to be counted though
+	game.Scores[game.Dealer] += dealerPoints.Total
+
+	// score crib
+	crib.Print(game.Players[game.Dealer].GetName() + " (Crib)")
+	//showHands(crib, crib)
+	cribPoints := crib.ScoreBreakdown(cut, true)
+	cribPoints.Print()
+	game.Scores[game.Dealer] += cribPoints.Total
+
+	// Gamewin() ??
+
+	//printBreakdown := true
+	for i, player := range game.Players {
+		/*isDealer := i == game.Dealer
+		sb := player.GetHand().ScoreBreakdown(cut, isDealer)
+		fmt.Printf("%s: %d points\n", player.GetName(), sb.Total)
+		if printBreakdown {
+			sb.Print()
+			//fmt.Println()
+		}
+		*/
+		fmt.Printf("%s: %d points\n", player.GetName(), game.Scores[i])
+	}
+	fmt.Println()
+}
+
+/*
+type PegState struct {
+	Sum        int // pegging up to 31
+	Turn       int
+	LastPlayer int // last player to place a card
+	CardStack  Hand
+	//Hand1 	 Hand
+	//Hand2      Hand
+	Passed1 bool // player said "Go"
+	Passed2 bool
+}
+
+type PegMove struct {
+	Card   Card
+	Passed bool
+}
+
+type Player interface {
+	Discard(hand Hand) (Hand, Hand)
+	PlayPegCard(state PegState) Card
+}
+
+type ComputerPlayer struct {
+	Name     string
+	Hand     Hand
+	Score    int
+	IsDealer bool
+}
+
+type Game struct {
+	Deck    Deck
+	Players [2]Player
+	Scores  [2]int
+	Dealer  int
+}
+
+	Sum        int // pegging up to 31
+	Turn       int
+	LastPlayer int // last player to place a card
+	CardStack  Hand
+	//Hand1 	 Hand
+	//Hand2      Hand
+	Passed1 bool // player said "Go"
+	Passed2 bool
+*/
+
+func EmptyHands(players [2]Player) bool {
+	h1, h2 := players[0].GetHand(), players[1].GetHand()
+	return len(h1) == 0 && len(h2) == 0
+}
+
+func PeggingRound(players [2]Player, scores *[2]int, dealer int) {
+	state := PegState{
+		Sum:       0,
+		Turn:      1 - dealer, // pone places first card
+		CardStack: make([]Card, 0),
+	}
+	for !EmptyHands(players) {
+		//func (p *ComputerPlayer) PlayPegCard(s PegState) (Card, bool) {
+		// TODO skip if previously passed?
+		card, passed := players[state.Turn].PlayPegCard(state)
+		if passed {
+			state.Passed[state.Turn] = true
+		} else {
+			state.AddCard(card)
+			points := ScorePeggingPlay(&state, card)
+			players[state.Turn].AddPoints(points)
+		}
+
+		if state.ShouldReset() {
+			// give points for last card, 31 is in other function
+			if state.Sum != 31 {
+				players[state.LastPlayer].AddPoints(1)
+			}
+			state.Reset()
+		}
+
+		state.Turn = 1 - state.Turn
+	}
+}
+
+// ------------------------------------------------------------ //
+
+func NewGame() *Game {
+	p1 := &ComputerPlayer{
+		Name:     "COM 1",
+		Points:   0,
+		IsDealer: true,
+	}
+
+	p2 := &ComputerPlayer{
+		Name:     "COM 2",
+		Points:   0,
+		IsDealer: false,
+	}
+
+	return &Game{
+		Deck:    NewDeck(),
+		Players: [2]Player{p1, p2},
+		Scores:  [2]int{0, 0},
+		Dealer:  0,
+	}
+}
+
+func Start() {
+	/*myDeck := NewDeck()
+	// 2 random cards, lower gets crib first
+	for i := 0; i < 3; i++ {
+		fmt.Printf("------------------------------\n")
+		fmt.Printf("-----     Round %d       -----\n", i+1)
+		fmt.Printf("------------------------------\n")
+		hand1, hand2, remaining := Deal(myDeck)
+		//showHands(hand1, hand2)
+		//fmt.Println()
+
+		//var crib []Card = make([]Card, 4, 4)
+		//crib := append(hand1[:2], hand2[:2]...)
+
+		hand1 = hand1[2:]
+		hand2 = hand2[2:]
+		fmt.Println("Cut Card: " + remaining[0].Rank.String() + remaining[0].Suit.String())
+		showHands(hand1, hand2)
+		fmt.Println()
+
+		//fmt.Printf("Player 1: %d points\n\n", hand1.Score(Card{Ace, Spades, Black}, true))
+		printBreakdown := true
+		sb1 := hand1.ScoreBreakdown(remaining[0], true)
+		sb2 := hand2.ScoreBreakdown(remaining[0], false)
+
+		fmt.Printf("Player 1: %d points\n", sb1.Total)
+		if printBreakdown {
+			sb1.Print()
+			//fmt.Println()
+		}
+
+		fmt.Printf("Player 2: %d points\n", sb2.Total)
+		if printBreakdown {
+			sb2.Print()
+			//fmt.Println()
+		}
+	}
+	fmt.Printf("\n\n\n")
+	*/
+	game := NewGame()
+	game.Play()
+}
