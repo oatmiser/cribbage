@@ -31,7 +31,6 @@ func (game *Game) StartPegging() {
 
 	fmt.Printf("(Pegging Pile 1)\n")
 	for !EmptyHands(players) {
-		//fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
 		// assume another skip if Player previously passed
 		if state.Passed[state.Turn] {
 			//fmt.Printf("%s says GO\n\n", players[state.Turn])
@@ -67,11 +66,6 @@ func (game *Game) StartPegging() {
 			// give points for last card (31 is included in ScorePeggingPlay)
 			if state.Sum != 31 {
 				fmt.Println()
-				/*fmt.Printf("\nSum: %d\n", state.Sum)
-				for _, c := range state.CardPile {
-					fmt.Printf("%s ", c)
-				}
-				*/
 				fmt.Printf("\n%s scores +1 [Last Card]", players[state.LastPlayer])
 				game.AddPoints(state.LastPlayer, 1)
 				if game.GameWon {
@@ -82,6 +76,9 @@ func (game *Game) StartPegging() {
 			fmt.Printf("\n\n")
 			state.Reset()
 			if !EmptyHands(players) {
+				game.Players[0].EnterToContinue()
+				game.Players[1].EnterToContinue()
+				ClearScreen()
 				fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
 			}
 		} else {
@@ -91,17 +88,12 @@ func (game *Game) StartPegging() {
 		state.Turn = 1 - state.Turn
 	}
 
-	//fmt.Printf("\nSum: %d\n", state.Sum)
-	/*for _, c := range state.CardPile {
-		fmt.Printf("%s ", c)
-	}
-	*/
 	fmt.Println(state.CardPile)
 	fmt.Printf("\nAll cards have been played!\n")
 
 	if state.Sum != 0 {
 		// the loop ended after both hands are empty
-		// sum can be zero after 31, or if both Players Go
+		// sum will be zero after 31 or if both Players said Go
 		fmt.Printf("%s scores +1 [Last Card]\n\n", players[state.LastPlayer])
 		game.AddPoints(state.LastPlayer, 1)
 		if game.GameWon {

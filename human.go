@@ -152,6 +152,8 @@ func (p *HumanPlayer) EmptyPegHand() bool {
 	return len(p.PegHand) == 0
 }
 
+// return Card and bool for Passed/Go
+// if passed, Card is the empty/default struct
 func (p *HumanPlayer) PlayPegCard(state PegState) (Card, bool) {
 	fmt.Println()
 
@@ -183,6 +185,43 @@ func (p *HumanPlayer) PlayPegCard(state PegState) (Card, bool) {
 			}
 			// blank card and Go/passed is true
 			return Card{}, true
+		case "win", "w":
+			var returnCard Card
+			sayGo := false
+			if !possible {
+				// automatically say Go
+				returnCard = Card{}
+				sayGo = true
+				fmt.Printf("%s says Go.\n", p)
+			} else {
+				best, ok := OptimalPegging(state, p.PegHand)
+				var rmIdx int
+				if !ok {
+					// Play is possible but nothing is optimal
+					// automatically send first valid card
+					for i, card := range p.PegHand {
+						if card.ValueMax10() <= 31-state.Sum {
+							returnCard = card
+							rmIdx = i
+						}
+					}
+					fmt.Printf("%s plays %s\n", p, returnCard)
+				} else {
+					returnCard = best
+					for i, card := range p.PegHand {
+						if card.String() == best.String() {
+							rmIdx = i
+							break
+						}
+					}
+					fmt.Printf("%s plays optimal %s\n", p, best)
+					//val, _ := ScorePeggingPlay(state, best)
+					//fmt.Printf(" (+%d)\n", val)
+				}
+				p.PegHand = slices.Delete(p.PegHand, rmIdx, rmIdx+1)
+			}
+			p.EnterToContinue()
+			return returnCard, sayGo
 
 		case "help", "h":
 			if !possible {
@@ -247,7 +286,7 @@ func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
 	str_flush := " "
 	str_nobs := " "
 
-	for input != "d" {
+	for input != "d" && input != "w" {
 		ClearScreen()
 		msg := " Count the number for each Point category "
 		if isCrib {

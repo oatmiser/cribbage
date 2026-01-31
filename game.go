@@ -137,7 +137,7 @@ func (game *Game) CelebrateWinner(winner int) {
 	Winner := game.Players[winner]
 	diff := Winner.GetScore() - Loser.GetScore()
 
-	msg := fmt.Sprintf("--- %s won ---", Winner)
+	msg := fmt.Sprintf("\n--- %s won ---", Winner)
 	fmt.Printf("\n%s\n", msg)
 	for i, player := range game.Players {
 		currentPoints := game.Players[i].GetScore()
@@ -323,6 +323,7 @@ func Start() {
 | |_\ \ (_| | | | | | |  __/                  
  \____/\__,_|_| |_| |_|\___|  v1
 `
+	time.Sleep(1 * time.Second)
 	// Awesome Cribbage Game
 	ClearScreen()
 	fmt.Println(AwesomeTitle)
