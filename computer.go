@@ -39,45 +39,22 @@ func (p *ComputerPlayer) AddPoints(n int) int {
 }
 
 func (p *ComputerPlayer) Discard(isDealer bool) (discard Hand, keep Hand) {
-	//h := p.Hand
 	options := p.Hand.Split(4)
-	bestOption := OptimalDiscard(options, isDealer)
-	//discard = h[:2]
-	//keep = h[2:]
-	discard = bestOption.Discard
-	keep = bestOption.Keep
+	best := OptimalDiscard(options, isDealer)
+	discard = best.Discard
+	keep = best.Keep
 
-	p.Hand = keep
 	// copy of Hand will be emptied during Pegging
+	p.Hand = keep
 	p.PegHand = make(Hand, len(keep))
 	copy(p.PegHand, keep)
 	return
 }
 
-func (p *ComputerPlayer) PeggingHeuristic(s PegState) Card {
-	// For every playable card in Hand...
-	// Immediate gain
-	// Target 15, 31, pair, run
-
-	// Subtract risk score (enables opponent points)
-	// Avoid 5, 10, 21, opponent run
-
-	// Predictive reasoning
-	// Allow a card if optimal opponent behavior can be used
-	// e.g. play 7, expect 8, play 9 (+3 run > +2 15 for opponent)
-
-	// Position from 15 or 31
-	// Force opponent GO
-
-	return Card{}
-}
-
-func (p *ComputerPlayer) PlayPegCard(s PegState) (c Card, passed bool) {
-	// send first valid card in Player's hand
-	// TODO: consider run, in a row, 15, 31, ?predict other player?
+func (p *ComputerPlayer) PlayPegCard(s PegState) (cardToPlay Card, passed bool) {
 	best, ok := OptimalPegging(s, p.PegHand)
 	if ok {
-		c = best
+		cardToPlay = best
 		passed = false
 		return
 	}
@@ -86,11 +63,15 @@ func (p *ComputerPlayer) PlayPegCard(s PegState) (c Card, passed bool) {
 	for i, card := range p.PegHand {
 		if card.ValueMax10() <= 31-s.Sum {
 			p.PegHand = slices.Delete(p.PegHand, i, i+1)
-			return card, false
+			cardToPlay = card
+			passed = false
+			return
 		}
 	}
 	// no valid card and say Go/pass
-	return Card{}, true
+	cardToPlay = Card{}
+	passed = true
+	return
 }
 
 func (p *ComputerPlayer) DrawCard() int {
@@ -110,7 +91,7 @@ func (p *ComputerPlayer) CountHand(cut Card, isCrib bool) int {
 }
 
 func (p *ComputerPlayer) EnterToContinue() {
-	// Function in Interface needed for HumanPlayer
+	// Function in Player Interface, only needed for HumanPlayer
 	//return
 }
 

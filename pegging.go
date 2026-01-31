@@ -1,16 +1,114 @@
 package cribbage
 
+// File contains loop for Pegging round and functions for scoring Pegging points
+
 import (
 	"fmt"
+	"strings"
 )
 
 type PegState struct {
-	Sum        int // pegging up to 31
-	Turn       int
-	LastPlayer int // last player to place a card
-	CardPile   Hand
+	Sum        int     // pegging up to 31
+	Turn       int     // index of Player
+	LastPlayer int     // last player to place a card
+	CardPile   Hand    // current Player cards (add to <=31)
 	Passed     [2]bool // player said "Go"
 	PileNum    int     // 1-3 piles of <=31 per Pegging round
+}
+
+// Players try to place all of their cards on the pile
+// Once the score goes above 31, start a new pile
+func (game *Game) StartPegging() {
+	dealer := game.Dealer
+	players := game.Players
+	linebreak := strings.Repeat("-", 30)
+
+	state := PegState{
+		Sum:      0,
+		Turn:     1 - dealer, // pone places first card
+		CardPile: make([]Card, 0),
+	}
+
+	fmt.Printf("(Pegging Pile 1)\n")
+	for !EmptyHands(players) {
+		//fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
+		// assume another skip if Player previously passed
+		if state.Passed[state.Turn] {
+			//fmt.Printf("%s says GO\n\n", players[state.Turn])
+			state.Turn = 1 - state.Turn
+			continue
+		}
+
+		fmt.Printf("Sum: %d\n", state.Sum)
+		for _, c := range state.CardPile {
+			fmt.Printf("%s ", c)
+		}
+		fmt.Println("[?]")
+
+		card, passed := players[state.Turn].PlayPegCard(state)
+		if passed {
+			fmt.Printf("%s says GO", players[state.Turn])
+			state.Passed[state.Turn] = true
+		} else {
+			fmt.Printf("%s plays %s", players[state.Turn], card)
+			points, comment := ScorePeggingPlay(state, card)
+			state.AddCard(card)
+			if points > 0 {
+				fmt.Print(comment)
+				game.AddPoints(state.Turn, points)
+				if game.GameWon {
+					game.CelebrateWinner(state.Turn)
+					return
+				}
+			}
+		}
+
+		if state.ShouldReset() {
+			// give points for last card (31 is included in ScorePeggingPlay)
+			if state.Sum != 31 {
+				fmt.Println()
+				/*fmt.Printf("\nSum: %d\n", state.Sum)
+				for _, c := range state.CardPile {
+					fmt.Printf("%s ", c)
+				}
+				*/
+				fmt.Printf("\n%s scores +1 [Last Card]", players[state.LastPlayer])
+				game.AddPoints(state.LastPlayer, 1)
+				if game.GameWon {
+					game.CelebrateWinner(state.LastPlayer)
+					return
+				}
+			}
+			fmt.Printf("\n\n")
+			state.Reset()
+			if !EmptyHands(players) {
+				fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
+			}
+		} else {
+			fmt.Printf("\n%s\n", linebreak)
+		}
+
+		state.Turn = 1 - state.Turn
+	}
+
+	//fmt.Printf("\nSum: %d\n", state.Sum)
+	/*for _, c := range state.CardPile {
+		fmt.Printf("%s ", c)
+	}
+	*/
+	fmt.Println(state.CardPile)
+	fmt.Printf("\nAll cards have been played!\n")
+
+	if state.Sum != 0 {
+		// the loop ended after both hands are empty
+		// sum can be zero after 31, or if both Players Go
+		fmt.Printf("%s scores +1 [Last Card]\n\n", players[state.LastPlayer])
+		game.AddPoints(state.LastPlayer, 1)
+		if game.GameWon {
+			game.CelebrateWinner(state.LastPlayer)
+			return
+		}
+	}
 }
 
 func TrailingMultiple(pegStack Hand) int {
@@ -61,8 +159,8 @@ func ScorePegRuns(stack Hand) int {
 		for _, card := range topN {
 			r := int(card.Rank)
 			if seen[r] {
-				// continue in outer loop...
-				// next topN (smaller) may have a valid run without the duplicate
+				// continue in outer loop, where the next (smaller)
+				// topN might make a valid run without this duplicate
 				goto next
 			}
 			seen[r] = true
@@ -87,48 +185,37 @@ func ScorePegRuns(stack Hand) int {
 // amount of points from placing such a Card on the pegging pile
 // with the string to append in the terminal output
 func ScorePeggingPlay(s PegState, c Card) (points int, msg string) {
-	// TODO bad design!!!
-	// state must be ALREADY changed with card c
-	//fixed
+	// state was not updated with Card in the caller yet
 	s.AddCard(c)
 
-	/*spacer := strings.Repeat(" ", 4)
-	spacer = "  --"
-	spacer = "\n --"
-	*/
 	points = 0
 
 	if s.Sum == 15 {
-		//fmt.Printf("%s15 for 2\n", spacer)
 		msg = "  +2  [15]"
 		points += 2
 	}
 	if s.Sum == 31 {
-		//fmt.Printf("%s31 for 2\n", spacer)
 		msg = "  +2  [31]"
 		points += 2
 	}
 
 	pairPoints := ScorePegPairs(s.CardPile)
 	if pairPoints == 2 {
-		//fmt.Printf("%sPair for 2\n", spacer)
 		msg += "  +2  [Pair]"
 	} else if pairPoints > 1 {
-		//fmt.Printf("%s%d pairs for %d\n", spacer, pairPoints/2, pairPoints)
-		// todo say 3 in a row etc?
+		// TODO say 3 in a row etc
 		msg += fmt.Sprintf("  +%d  [%d pairs]", pairPoints, pairPoints/2)
 	}
 	points += pairPoints
 
 	runPoints := ScorePegRuns(s.CardPile)
 	if runPoints > 0 {
-		//fmt.Printf("%sRun of %d for %d\n", spacer, runPoints, runPoints)
 		msg += fmt.Sprintf("  +%d  [Run of %d]", runPoints, runPoints)
 	}
 	points += runPoints
 
-	// Separate point is given for last card of a pile in StartPegging
-	return //points, msg
+	// 1 point can also be given for "last card of a pile" inside StartPegging
+	return
 }
 
 func (s *PegState) AddCard(c Card) {
@@ -156,32 +243,24 @@ func (s *PegState) Reset() {
 }
 
 func EmptyHands(players [2]Player) bool {
-	/*h1 := players[0].GetHand()
-	h2 := players[1].GetHand()
-	return len(h1) == 0 && len(h2) == 0
-	*/
 	return players[0].EmptyPegHand() && players[1].EmptyPegHand()
 }
 
 func OptimalPegging(state PegState, hand Hand) (Card, bool) {
-	// TODO opponent modeling and more
+	// TODO opponent modeling and more, examples:
 	// avoid allowing run of 3 unless you can make run of 4
-	// avoid taking run of 4 unless you can make run of 4/5
-	// e.g. do not do 7-8 (+2 15 but allows +3 run of 3)
+	// do not do 7-8 (+2 15 allows +3 run of 3)
 	// avoid 5, 10, 21
 	max := 0
 	var best Card
 	found := false
 
 	for _, card := range hand {
+		// cannot ever play a card that is too big
 		if card.ValueMax10()+state.Sum > 31 {
-			// cannot ever play a card that is too big
-			//fmt.Printf("Cannot play %s\n", card)
 			continue
 		}
-
 		points, _ := ScorePeggingPlay(state, card)
-		//fmt.Printf("%s gets %d points\n", card, points)
 		if points > max {
 			max = points
 			best = card

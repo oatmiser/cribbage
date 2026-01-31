@@ -6,15 +6,8 @@ import (
 	"strings"
 )
 
+// count 15s (sum of Rank) in a Hand
 func Score_15(h Hand) int {
-	// count 15s in a five-card Hand
-	/*var cardValues []int = make([]int, 0)
-	for _, c := range h {
-		cardValues = append(cardValues, c.ValueMax10())
-	}
-	// TODO subset sum to 15
-	return 0
-	*/
 	values := make([]int, len(h))
 	for i, c := range h {
 		values[i] = c.ValueMax10()
@@ -25,7 +18,7 @@ func Score_15(h Hand) int {
 	// subset sum to 15
 	// 0x00000 to 0x11111 represents the inclusion of FIVE Cards in the subset
 	// iterate through the 32 cases to see if the corresponding sum is 15
-	// minor optimization to start at 0x00011 (minimum 2 cards to get 15)
+	// minor optimization to start at 0x00011 (2+ cards needed to get 15)
 	for mask := 3; mask < (1 << n); mask++ {
 		sum := 0
 		for i := 0; i < n; i++ {
@@ -40,8 +33,8 @@ func Score_15(h Hand) int {
 	return points
 }
 
+// count pair/triple of same Ranks in a Hand
 func Score_multiple(h Hand) int {
-	// count pair/triple of Ranks in a five-card Hand
 	var points int = 0
 
 	count := make(map[Rank]int)
@@ -60,25 +53,6 @@ func Score_multiple(h Hand) int {
 }
 
 func Score_run(h Hand) int {
-	// hard to reason about duplicates using slices.Contains
-	// frequency of each Card Rank
-	/*count := make(map[Rank]int)
-	for _, c := range h {
-		count[c.Rank]++
-	}
-
-	// extract unique and sort
-	ranksInHand := make([]Rank, 0)
-	for r, count := range count {
-		if count > 0 {
-			ranksInHand = append(ranksInHand, r)
-		}
-	}
-	slices.Sort(ranksInHand)
-
-	// TODO consecutive sequences
-	*/
-
 	freq := make(map[Rank]int)
 	for _, c := range h {
 		freq[c.Rank]++
@@ -117,25 +91,6 @@ func Score_run(h Hand) int {
 }
 
 func Score_flush(hand Hand, cut Card, myCrib bool) int {
-	/*flush := 1
-	var suit Suit = h[0].Suit
-	h = h[1:]
-	for _, c := range h {
-		if c.Suit != suit {
-			break
-		}
-		flush++
-	}
-
-	if flush == 4 {
-		if myCrib && cut.Suit == suit {
-			flush++
-		}
-		return flush
-	} else {
-		return 0
-	}
-	*/
 	if len(hand) == 0 {
 		return 0
 	}
@@ -146,16 +101,17 @@ func Score_flush(hand Hand, cut Card, myCrib bool) int {
 			return 0
 		}
 	}
-	// all 4 hand cards match
+	// now all 4 hand cards match
+
 	if cut.Suit == suit {
 		// crib or non-crib
 		return 5
 	}
+	// else flush of 4, only counted in Show and not Show Crib
 	if myCrib {
-		// only flush of 5 in the crib
+		// crib only counts flush of 5
 		return 0
 	}
-	// flush of 4 or 5 for the hand
 	return 4
 }
 
@@ -180,17 +136,6 @@ type ScoreBreakdown struct {
 }
 
 func (h Hand) Score(cut Card, isCrib bool) int {
-	/*var total int = 0
-	all := append(h, cut)
-
-	total += Score_15(all)
-	total += Score_multiple(all)
-	total += Score_run(all)
-	total += Score_flush(h, cut, myCrib)
-	total += Score_nobs(h, cut)
-
-	return total
-	*/
 	return h.ScoreBreakdown(cut, isCrib).Total
 }
 
@@ -309,7 +254,6 @@ func (sb ScoreBreakdown) Print() {
 		default:
 			fmt.Println("TODO ScoreBreakdown")
 		}
-		//fmt.Printf("%d runs of X for %d\n", runs/2, runs)
 	}
 	if flush > 0 {
 		fmt.Printf(spacer+"Flush for %d\n", flush)

@@ -17,207 +17,6 @@ type HumanPlayer struct {
 	Points  int
 }
 
-func PromptIndices(hand Hand) {
-	/*for i, card := range hand {
-		value := card.ValueMax10()
-		fmt.Printf("[%d] %s (value %d)\n", i+1, card, value)
-	}
-	*/
-	fmt.Println()
-	for i := range hand {
-		fmt.Printf(" %d   ", i+1)
-	}
-	fmt.Println()
-	for _, card := range hand {
-		fmt.Printf("[%s] ", card)
-	}
-	fmt.Println()
-
-}
-func (p *HumanPlayer) Discard(isDealer bool) (discard Hand, keep Hand) {
-	// Player's Hand was given by SetHand,
-	// PegHand IS NIL, we will copy keep so it can be emptied during Pegging
-	DealtHand := p.Hand // 6 cards
-
-	//h.Print(p.GetName())
-	if isDealer {
-		//fmt.Printf("%s: Select 2 cards to send to your Crib\n", p)
-		fmt.Println("Select 2 cards to send to your Crib")
-	} else {
-		//fmt.Printf("%s: Select 2 cards to send to the opponent's Crib\n", p)
-		fmt.Println("Select 2 cards to send to the opponent's Crib")
-	}
-	fmt.Println("Say 'h' for a Hint on optimal selection")
-	fmt.Println("Examples: '1 2', '4 1', '6 2'")
-	PromptIndices(DealtHand)
-
-	//var input string
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		fmt.Print("Select Cards with 2 indices separate by a space: ")
-		//fmt.Scanln(&input)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		switch strings.ToLower(input) {
-		case "hint", "help", "h":
-			PrintOptimal(p.Hand.Split(4), isDealer)
-			PromptIndices(DealtHand)
-			continue
-		case "all", "analyze", "a":
-			DiscardAnalysis(p.Hand.Split(4), isDealer)
-			PromptIndices(DealtHand)
-			continue
-		case "optimal", "opt", "o", "win", "w":
-			PrintOptimal(p.Hand.Split(4), isDealer)
-			fmt.Println()
-			p.EnterToContinue()
-			//time.Sleep(1 * time.Second)
-
-			optimal := OptimalDiscard(p.Hand.Split(4), isDealer)
-			p.Hand = optimal.Keep
-			p.PegHand = make(Hand, len(p.Hand))
-			copy(p.PegHand, p.Hand)
-			return optimal.Discard, optimal.Keep
-		}
-
-		fields := strings.Fields(input)
-		if len(fields) != 2 {
-			fmt.Println("Invalid input.")
-			continue
-		}
-		//fmt.Println(fields)
-		//fmt.Println(p.Hand)
-
-		card1, err := strconv.Atoi(fields[0])
-		card1--
-		if err != nil || card1 < 0 || card1 >= len(p.Hand) {
-			fmt.Println("Invalid input.")
-			continue
-		}
-		FirstCard := DealtHand[card1]
-
-		card2, err := strconv.Atoi(fields[1])
-		card2--
-		if err != nil || card2 == card1 || card2 < 0 || card2 >= len(p.Hand) {
-			fmt.Println("Invalid input.")
-			continue
-		}
-		SecondCard := DealtHand[card2]
-
-		fmt.Printf("Discarding %s and %s\n", FirstCard, SecondCard)
-		var reset bool
-		for {
-			reset = false
-			fmt.Printf("Continue? [y/n]: ")
-			fmt.Scanln(&input)
-			switch strings.ToLower(input) {
-			case "yes", "y":
-				fmt.Println()
-				goto exit
-			case "no", "n":
-				reset = true
-				goto exit
-			default:
-				// for loop on Continue? input
-				continue
-			}
-		}
-	exit:
-		if reset {
-			PromptIndices(DealtHand)
-			// for loop on Card selection
-			continue
-		}
-
-		p.Hand = slices.Delete(p.Hand, card1, card1+1)
-		if card1 < card2 {
-			// index the correct element after array resize
-			card2--
-		}
-		p.Hand = slices.Delete(p.Hand, card2, card2+1)
-		p.PegHand = make(Hand, len(p.Hand))
-		copy(p.PegHand, p.Hand)
-
-		keep = p.PegHand
-		discard = Hand{FirstCard, SecondCard}
-		return
-	}
-}
-
-func (p *HumanPlayer) PlayPegCard(state PegState) (Card, bool) {
-	//fmt.Printf("%s\n", p.PegHand)
-	fmt.Println()
-
-	possible := false
-	for i, card := range p.PegHand {
-		value := card.ValueMax10()
-		if value <= 31-state.Sum {
-			possible = true
-		}
-		fmt.Printf("[%d] %s (value %d)\n", i+1, card, value)
-	}
-	if !possible {
-		// do not play GO automatically but inform the player
-		fmt.Println("(You must say Go)")
-	}
-
-	var input string
-	fmt.Println("\nSay 'g' to say Go, or 'h' for a Hint on optimal play")
-
-	for {
-		fmt.Print("Select an index to play that Card: ")
-		fmt.Scanln(&input)
-
-		switch strings.ToLower(input) {
-		case "go", "g":
-			if possible {
-				fmt.Println("You have at least 1 valid card and must play!")
-				continue
-			}
-			// blank card and Go/passed = true
-			return Card{}, true
-
-		case "help", "h":
-			//fmt.Println("TODO Pegging Hint")
-			if !possible {
-				fmt.Println("You must say Go.")
-				continue
-			}
-
-			best, ok := OptimalPegging(state, p.PegHand)
-			if ok {
-				fmt.Printf("The best card to play is %s", best)
-				val, _ := ScorePeggingPlay(state, best)
-				fmt.Printf(" (+%d)\n", val)
-			} else {
-				fmt.Println("No optimal play detected.")
-			}
-			continue
-		}
-
-		i, err := strconv.Atoi(input)
-		i -= 1
-		if err != nil || i < 0 || i >= len(p.PegHand) {
-			fmt.Println("Invalid input.")
-			// recurse instead of looping on input?
-			//return p.PlayPegCard(state)
-			continue
-		}
-
-		card := p.PegHand[i]
-		if card.ValueMax10() > 31-state.Sum {
-			fmt.Println("Invalid: pile would exceed 31.")
-			//return p.PlayPegCard(state)
-			continue
-		}
-
-		p.PegHand = slices.Delete(p.PegHand, i, i+1)
-		return card, false
-	}
-}
-
 func (p *HumanPlayer) String() string {
 	return p.Name
 }
@@ -243,10 +42,189 @@ func (p *HumanPlayer) GetScore() int {
 	return p.Points
 }
 
-func (p *HumanPlayer) DrawCard() int {
+func (p *HumanPlayer) Discard(isDealer bool) (discard Hand, keep Hand) {
+	// Player's Hand was created by SetHand and PegHand is CURRENTLY NIL
+	// Copy the Keep (4 cards) to PegHand so it can be emptied during Pegging
+	dealtHand := p.Hand // 6 cards
+
+	if isDealer {
+		fmt.Println("Select 2 cards to send to your Crib.")
+	} else {
+		fmt.Println("Select 2 cards to send to the opponent's Crib.")
+	}
+	fmt.Println("Say 'h' for a Hint on optimal selection")
+	fmt.Println("Examples: '1 2', '4 1', '6 2'")
+	PromptIndices(dealtHand)
+
+	//var input string
 	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Select Cards with 2 indices separate by a space: ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		switch strings.ToLower(input) {
+		case "hint", "help", "h":
+			PrintOptimal(p.Hand.Split(4), isDealer)
+			PromptIndices(dealtHand)
+			continue
+		case "all", "analyze", "a":
+			DiscardAnalysis(p.Hand.Split(4), isDealer)
+			PromptIndices(dealtHand)
+			continue
+		case "optimal", "opt", "o", "win", "w":
+			PrintOptimal(p.Hand.Split(4), isDealer)
+			fmt.Println()
+			p.EnterToContinue()
+
+			optimal := OptimalDiscard(p.Hand.Split(4), isDealer)
+			p.Hand = optimal.Keep
+			p.PegHand = make(Hand, len(p.Hand))
+			copy(p.PegHand, p.Hand)
+			return optimal.Discard, optimal.Keep
+		}
+
+		// Try to parse all other cases of user input as "<int> <int>"
+		fields := strings.Fields(input)
+		if len(fields) != 2 {
+			fmt.Println("Invalid input.")
+			continue
+		}
+
+		card1, err := strconv.Atoi(fields[0])
+		card1--
+		if err != nil || card1 < 0 || card1 >= len(p.Hand) {
+			fmt.Println("Invalid input.")
+			continue
+		}
+		firstCard := dealtHand[card1]
+
+		card2, err := strconv.Atoi(fields[1])
+		card2--
+		if err != nil || card2 == card1 || card2 < 0 || card2 >= len(p.Hand) {
+			fmt.Println("Invalid input.")
+			continue
+		}
+		secondCard := dealtHand[card2]
+
+		fmt.Printf("Discarding %s and %s\n", firstCard, secondCard)
+		var reset bool
+		for {
+			reset = false
+			fmt.Printf("Continue? [y/n]: ")
+			fmt.Scanln(&input)
+			switch strings.ToLower(input) {
+			case "yes", "y":
+				fmt.Println()
+				goto exit
+			case "no", "n":
+				reset = true
+				goto exit
+			default:
+				// repeat loop on "Continue?: "
+				continue
+			}
+		}
+
+	exit:
+		if reset {
+			PromptIndices(dealtHand)
+			// repeat loop on 2-Card selection
+			continue
+		}
+
+		p.Hand = slices.Delete(p.Hand, card1, card1+1)
+		// update index to be the correct element after the array resize
+		if card1 < card2 {
+			card2--
+		}
+		p.Hand = slices.Delete(p.Hand, card2, card2+1)
+		p.PegHand = make(Hand, len(p.Hand))
+		copy(p.PegHand, p.Hand)
+
+		keep = p.PegHand
+		discard = Hand{firstCard, secondCard}
+		return
+	}
+}
+
+func (p *HumanPlayer) EmptyPegHand() bool {
+	return len(p.PegHand) == 0
+}
+
+func (p *HumanPlayer) PlayPegCard(state PegState) (Card, bool) {
+	fmt.Println()
+
+	possible := false
+	// impossible if PegHand is empty or all cards Ranks are too high
+	for i, card := range p.PegHand {
+		value := card.ValueMax10()
+		if value <= 31-state.Sum {
+			possible = true
+		}
+		fmt.Printf("[%d] %s (value %d)\n", i+1, card, value)
+	}
+	if !possible {
+		// do not play GO automatically but inform the player
+		fmt.Println("(You must say Go)")
+	}
+
+	fmt.Println("\nSay 'g' to say Go, or 'h' for a Hint on optimal play")
+	var input string
+	for {
+		fmt.Print("Select an index to play that Card: ")
+		fmt.Scanln(&input)
+
+		switch strings.ToLower(input) {
+		case "go", "g":
+			if possible {
+				fmt.Println("You have at least 1 valid card and must play!")
+				continue
+			}
+			// blank card and Go/passed is true
+			return Card{}, true
+
+		case "help", "h":
+			if !possible {
+				fmt.Println("You must say Go.")
+				continue
+			}
+
+			best, ok := OptimalPegging(state, p.PegHand)
+			if ok {
+				fmt.Printf("The best card to play is %s", best)
+				val, _ := ScorePeggingPlay(state, best)
+				fmt.Printf(" (+%d)\n", val)
+			} else {
+				fmt.Println("No optimal play detected.")
+			}
+			continue
+		}
+
+		// index of PegHand (array sized 0-4)
+		i, err := strconv.Atoi(input)
+		i--
+		if err != nil || i < 0 || i >= len(p.PegHand) {
+			fmt.Println("Invalid input.")
+			// repeat loop on PegHand selection or Say Go
+			continue
+		}
+
+		card := p.PegHand[i]
+		if card.ValueMax10() > 31-state.Sum {
+			fmt.Println("Invalid: pile would exceed 31.")
+			// repeat loop on PegHand selection or Say Go
+			continue
+		}
+
+		p.PegHand = slices.Delete(p.PegHand, i, i+1)
+		return card, false
+	}
+}
+
+func (p *HumanPlayer) DrawCard() int {
 	fmt.Print("Please select a Card from 1 to 52: ")
-	//fmt.Scanln(&input)
+	reader := bufio.NewReader(os.Stdin)
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
 	randomChoice := rand.IntN(52)
@@ -258,26 +236,6 @@ func (p *HumanPlayer) DrawCard() int {
 	} else {
 		return choice - 1
 	}
-
-	/*switch strings.ToLower(input) {
-	case "random", "r", "":
-		return randomChoice
-
-	default:
-		fields := strings.Fields(input)
-		if len(fields) != 1 {
-			fmt.Printf("Invalid input, you get %d bozo\n", randomChoice)
-			return randomChoice
-		}
-
-		choice, err := strconv.Atoi(fields[0])
-		if err != nil || choice < 1 || choice > 52 {
-			fmt.Printf("Invalid input, you get %d bozo\n", randomChoice)
-			return randomChoice
-		}
-		return choice - 1
-	}
-	*/
 }
 
 func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
@@ -299,16 +257,6 @@ func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
 		fmt.Println(strings.Repeat("-", len(msg)))
 		fmt.Printf("Hand: %s  Cut: %s\n", p.Hand, cut)
 
-		/*hand := p.Hand
-		for i := range hand {
-			fmt.Printf(" %d   ", i+1)
-		}
-		fmt.Printf("Cut %d\n", len(hand))
-		for _, card := range hand {
-			fmt.Printf("[%s] ", card)
-		}
-		fmt.Printf("\n\n")
-		*/
 		fmt.Printf("[%s] Fifteens\n[%s] Pairs\n", str_15, str_pair)
 		fmt.Printf("[%s] Runs\n[%s] Flush\n[%s] Nobs\n\n", str_run, str_flush, str_nobs)
 
@@ -316,16 +264,9 @@ func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
 		input, _ = reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
-		/*fields := strings.Fields(input)
-		if len(fields) != 1 {
-			continue
-		}
-		*/
-
-		//choice, err := strconv.Atoi(fields[0])
 		choice, err := strconv.Atoi(input)
 		if err != nil || choice < 1 || choice > 5 {
-			// cannot convert or input 'd' for Done
+			// cannot convert, or input was 'd' for Done
 			continue
 		}
 
@@ -335,7 +276,7 @@ func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
 			input, _ = reader.ReadString('\n')
 			num, err := strconv.Atoi(strings.TrimSpace(input))
 			if err != nil || num < 0 || num > 8 {
-				str_15 = " " //fmt.Sprintf(" ")
+				str_15 = " "
 			} else {
 				str_15 = fmt.Sprintf("%d", num)
 			}
@@ -421,7 +362,7 @@ func (p *HumanPlayer) CountHand(cut Card, isCrib bool) int {
 	return realPoints.Total
 }
 
-// equality of two SB structs, with console messages
+// equality of two ScoreBreakdown structs, with console messages
 func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 	countedCorrect := true
 
@@ -451,7 +392,8 @@ func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 	}
 
 	runPoints := realPoints.Runs
-	// field currently has just the NUMBER of runs
+	// field currently has just the NUMBER of runs input by
+	// the User, not actual points (UI does not distinguish run of 3/4/5)
 	switch userPoints.Runs {
 	case 0:
 		if runPoints > 0 {
@@ -461,13 +403,15 @@ func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 			userPoints.Runs = 0
 		}
 	case 1:
-		if runPoints != 3 && runPoints != 4 {
+		// one run of 3 or 4 or 5
+		if runPoints != 3 && runPoints != 4 && runPoints != 5 {
 			countedCorrect = false
 			fmt.Println("Not 1 run")
 		} else {
 			userPoints.Runs = realPoints.Runs
 		}
 	case 2:
+		// two runs of 3 or 4
 		if runPoints != 6 && runPoints != 8 {
 			countedCorrect = false
 			fmt.Println("Not 2 runs")
@@ -475,7 +419,7 @@ func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 			userPoints.Runs = realPoints.Runs
 		}
 	case 3:
-		// can only be 3 runs of 3
+		// three runs of 3
 		if runPoints != 9 {
 			countedCorrect = false
 			fmt.Println("Not 3 runs")
@@ -483,6 +427,7 @@ func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 			userPoints.Runs = 9
 		}
 	case 4:
+		// four runs of 3
 		if runPoints != 12 {
 			countedCorrect = false
 			fmt.Println("Not 4 runs")
@@ -495,10 +440,6 @@ func CompareBreakDown(userPoints, realPoints ScoreBreakdown) bool {
 }
 
 func (p *HumanPlayer) EnterToContinue() {
-	fmt.Print("Press any key to continue")
+	fmt.Print("\nPress any key to continue")
 	bufio.NewReader(os.Stdin).ReadBytes('\n')
-}
-
-func (p *HumanPlayer) EmptyPegHand() bool {
-	return len(p.PegHand) == 0
 }

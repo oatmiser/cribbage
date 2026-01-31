@@ -8,16 +8,15 @@ import (
 type DiscardOption struct {
 	Keep    Hand
 	Discard Hand
-	//ExpectedValue float64
 }
 
 func (opt DiscardOption) ScoreRange(isDealer bool) (int, int) {
-	// best hand is 29 points
+	// best cribbage hand is 29 points
 	min, max := 29, 0
 	knownRemaining := difference(Hand(NewDeck()), append(opt.Keep, opt.Discard...))
 
 	for _, cut := range knownRemaining {
-		// Score during Show, crib is false
+		// Score is done during Show, crib is false
 		possiblePoints := opt.Keep.Score(cut, false)
 		if isDealer {
 			possiblePoints += opt.Discard.HeuristicScore()
@@ -37,7 +36,8 @@ func (opt DiscardOption) ScoreRange(isDealer bool) (int, int) {
 }
 
 func DiscardAnalysis(options []DiscardOption, isDealer bool) {
-	// every possible Keep/Discard and their average score
+	// Score every possible Keep/Discard and their
+	// score (average across all possible Cut cards)
 	msg := "All Possible Discards"
 	if isDealer {
 		msg += " (Your Crib)"
@@ -51,19 +51,17 @@ func DiscardAnalysis(options []DiscardOption, isDealer bool) {
 		ev := opt.ExpectedValue(isDealer)
 		min, max := opt.ScoreRange(isDealer)
 		fmt.Printf("Hand: %s\nCrib: %s\n", opt.Keep, opt.Discard)
-		//fmt.Printf("Average points: %f\nMin score: %d\nMax score: %d\n\n", ev, min, max)
 		fmt.Printf("Average points: %f\n", ev)
 		fmt.Printf("Score min, max = %d, %d\n\n", min, max)
 	}
 	fmt.Println(strings.Repeat("-", len(msg)))
-	//PrintOptimal(options, isDealer)
 }
 
 func OptimalDiscard(options []DiscardOption, isDealer bool) DiscardOption {
 	var bestOption DiscardOption = options[0]
 	var bestEV float64 = 0.0
 
-	// every possible Keep/Discard and their average score
+	// every Keep/Discard tuple and its average score
 	for _, option := range options {
 		ev := option.ExpectedValue(isDealer)
 		if ev > bestEV {
@@ -82,13 +80,9 @@ func PrintOptimal(options []DiscardOption, isDealer bool) {
 	} else {
 		player = "pone"
 	}
-
 	fmt.Printf("As the %s, your optimal discard is %s\n", player, optimal.Discard)
-	//fmt.Printf(" (EV %f)\n\n", optimal.ExpectedValue(isDealer))
-	//fmt.Printf("Expected value is %f", optimal.ExpectedValue(isDealer))
+
 	min, _ := optimal.ScoreRange(isDealer)
-	//fmt.Printf("; you will get at least %d points.\n", min)
-	// TODO needs to model cut card...
 	fmt.Printf("Your remaining Hand will get at least %d points", min)
 	fmt.Printf(" and the expected value is %f\n", optimal.ExpectedValue(isDealer))
 }
@@ -101,7 +95,7 @@ func (opt DiscardOption) ExpectedValue(isDealer bool) float64 {
 
 	// For every possible cut card, the Player would get that score during Show
 	for _, cut := range knownRemaining {
-		// Score during Show, crib is false
+		// Score is done during Show, crib is false
 		sumPoints += opt.Keep.Score(cut, false)
 	}
 	// Expected Points is the average of Show points from every possible cut card
@@ -109,19 +103,13 @@ func (opt DiscardOption) ExpectedValue(isDealer bool) float64 {
 	count := float64(len(knownRemaining)) // 46
 	expectedShow := float64(sumPoints) / count
 
-	// TODO assuming that best Show points is the best Keep/Discard is WRONG
-
-	// if isDealer we count some points from discard
+	// if isDealer we can include known points from our discard
 	if isDealer {
-		// Score during Show with Crib (only 2 cards known)
-		// 52 choose 2 is 1326, 46... is 1035
+		// possible Score during Show of Crib (only 2 cards are known)
 		minimumCrib += opt.Discard.HeuristicScore()
 	} else {
 		minimumCrib -= opt.Discard.HeuristicScore()
 	}
-
-	// TODO model opponent
-	// avoid sum (sometimes?) to 5, 10, 21
 
 	return expectedShow + float64(minimumCrib)
 }

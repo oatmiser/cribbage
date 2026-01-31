@@ -3,25 +3,53 @@ package cribbage
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
 
+func ClearScreen() {
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	} else {
+		fmt.Print("\033[H\033[2J")
+	}
+}
+
+func PromptIndices(hand Hand) {
+	fmt.Println()
+	for i := range hand {
+		fmt.Printf(" %d   ", i+1)
+	}
+	fmt.Println()
+	for _, card := range hand {
+		fmt.Printf("[%s] ", card)
+	}
+	fmt.Println()
+}
+
 type Player interface {
 	// Player selects 4 Hand and 2 Crib cards, mutating state
 	Discard(isDealer bool) (Hand, Hand)
+	// Player places 1 card from PegHand, mutating state
 	PlayPegCard(state PegState) (Card, bool)
+	EmptyPegHand() bool
 	String() string
 	GetName() string
 	GetHand() Hand
 	SetHand(h Hand)
 	AddPoints(n int) int
 	GetScore() int
-	DrawCard() int // select index from shuffled deck of 52
+	// select index from shuffled deck of 52
+	DrawCard() int
 	CountHand(cut Card, isCrib bool) int
+	// Human player acknowledges command line outputs
 	EnterToContinue()
-	EmptyPegHand() bool
 }
 
 type Game struct {
@@ -32,32 +60,25 @@ type Game struct {
 }
 
 func (g *Game) ChooseDealer() {
-	//ClearScreen()
-	g.Deck.Shuffle()
+	seed := time.Now().UnixNano()
+	rng := rand.New(rand.NewSource(seed))
+	g.Deck.Shuffle(rng)
 
 	select0 := g.Players[0].DrawCard()
-	name0 := g.Players[0].GetName()
 	card0 := g.Deck[select0]
-	//fmt.Printf("%s pulled %s (index %d)\n", name0, card0, select0+1)
-	fmt.Printf("%s pulled %s\n", name0, card0)
+	fmt.Printf("%s pulled %s\n", g.Players[0], card0)
 
 	select1 := g.Players[1].DrawCard()
-	// player goes first in a PlayerGame so we don't need the message
 	if select0 == select1 {
-		//fmt.Println("Cannot select the same card! (defaulting to next index)")
 		select1 = (select1 + 1) % 52
-		//fmt.Printf("%s already chose %s; ", name0, g.Deck[select0])
-		//fmt.Printf("%s take next card %s\n", name1, g.Deck[select1])
 	}
-
-	name1 := g.Players[1].GetName()
 	card1 := g.Deck[select1]
-	//fmt.Printf("%s pulled %s (index %d)\n", name1, card1, select1+1)
-	fmt.Printf("%s pulled %s\n", name1, card1)
+	fmt.Printf("%s pulled %s\n", g.Players[1], card1)
 
 	switch {
 	case card0.Value() == card1.Value():
 		fmt.Println("Cards have the same Rank! Try again...")
+		time.Sleep(1 * time.Second)
 		g.ChooseDealer()
 	case card0.Value() < card1.Value():
 		g.Dealer = 0
@@ -69,15 +90,13 @@ func (g *Game) ChooseDealer() {
 		fmt.Println("TODO ChooseDealer")
 		g.Dealer = 0
 	}
-	fmt.Printf("%s will be the first Dealer\n\n", g.Players[g.Dealer].GetName())
+	fmt.Printf("%s will be the first Dealer\n", g.Players[g.Dealer])
 	g.Players[0].EnterToContinue()
 	g.Players[1].EnterToContinue()
-	//time.Sleep(2 * time.Second)
 }
 
 func (g *Game) StartGame() {
 	roundNum := 0
-	//for g.Players[0].GetScore() < 121 && g.Players[1].GetScore() < 121 {
 	for !g.GameWon {
 		ClearScreen()
 		fmt.Printf("--- Round #%d ---\n", roundNum+1)
@@ -87,11 +106,12 @@ func (g *Game) StartGame() {
 	}
 }
 
+// add points to player at index i
+// Bool indicates "do not continue the Cribbage game" (unused)
 func (game *Game) AddPoints(i, amount int) bool {
 	total := game.Players[i].AddPoints(amount)
 	if total >= 121 {
 		game.GameWon = true
-		// do not continue the Cribbage round (unused)
 		return false
 	}
 	return true
@@ -105,7 +125,7 @@ func (g *Game) PrintPoints(msg string, previous0 int, previous1 int) {
 	fmt.Println(msg)
 	for i, player := range g.Players {
 		currentPoints := g.Players[i].GetScore()
-		// Player name, points increased, total points
+		// Display player name, points increased, total points
 		fmt.Printf("%s (+%d)", player, currentPoints-previous[i])
 		fmt.Printf(" : %d points\n", currentPoints)
 	}
@@ -117,11 +137,11 @@ func (game *Game) CelebrateWinner(winner int) {
 	Winner := game.Players[winner]
 	diff := Winner.GetScore() - Loser.GetScore()
 
-	msg := fmt.Sprintf("--- %s won ---", Winner.GetName())
+	msg := fmt.Sprintf("--- %s won ---", Winner)
 	fmt.Printf("\n%s\n", msg)
 	for i, player := range game.Players {
 		currentPoints := game.Players[i].GetScore()
-		fmt.Printf("%s: %d points\n", player.GetName(), currentPoints)
+		fmt.Printf("%s: %d points\n", player, currentPoints)
 	}
 	fmt.Println(strings.Repeat("-", len(msg)))
 
@@ -130,16 +150,18 @@ func (game *Game) CelebrateWinner(winner int) {
 	} else if diff > 30 {
 		fmt.Println("SKUNK")
 	}
-	fmt.Printf("Good Game %s!\n", Loser.GetName())
+	fmt.Printf("Good Game %s!\n", Loser)
 }
 
 func (game *Game) PlayRound() {
-	// Simulate shuffle and card deal
-	game.Deck.Shuffle()
+	// Each Cribbage round has a shuffle and deal 6 cards
+	seed := time.Now().UnixNano()
+	rng := rand.New(rand.NewSource(seed)) // pointer
+	game.Deck.Shuffle(rng)
+
 	hand1, hand2, remainingDeck := Deal(game.Deck, 6)
 	game.Players[0].SetHand(hand1)
 	game.Players[1].SetHand(hand2)
-	//ShowCardDeal(game.Players[0], game.Players[1])
 
 	crib := Hand{}
 	pone := 1 - game.Dealer
@@ -149,15 +171,12 @@ func (game *Game) PlayRound() {
 	for i, player := range game.Players {
 		isDealer := i == dealer
 		discard, _ := player.Discard(isDealer)
-		//fmt.Println(keep)
 		crib = append(crib, discard...)
 
 	}
 
-	// Start Pegging round
-
+	// Start Pegging round, show Cut card from top of shuffled deck
 	ClearScreen()
-	// Cut card from top of deck
 	cut := remainingDeck[0]
 	fmt.Printf("Cut Card: %s\n", cut)
 	if cut.Rank == Jack {
@@ -170,8 +189,8 @@ func (game *Game) PlayRound() {
 		}
 	}
 
-	// Player's place one card at a time onto a pile and score points
-	// New pile after cards add to 31 points, until both Hands are empty
+	// Players put one card at a time onto the pile and score points.
+	// Make a new pile after cards add to 31 points, until both Hands are empty.
 	title := "--- PEGGING ---"
 	fmt.Printf("\n%s\n", title)
 	fmt.Printf("Dealer: %s\nPone leads\n", game.Players[dealer])
@@ -186,8 +205,6 @@ func (game *Game) PlayRound() {
 	}
 	fmt.Println()
 	game.PrintPoints("SUMMARY (PLAY)", before0, before1)
-	//time.Sleep(2 * time.Second)
-	fmt.Println()
 	game.Players[0].EnterToContinue()
 	game.Players[1].EnterToContinue()
 	ClearScreen()
@@ -197,23 +214,14 @@ func (game *Game) PlayRound() {
 	fmt.Printf("Cut Card: %s\n", cut)
 	before0 = game.Players[0].GetScore()
 	before1 = game.Players[1].GetScore()
-	//time.Sleep(2 * time.Second)
 
 	// Score pone's hand
 	ponePlayer := game.Players[pone]
+	// TODO server calculates points instead
 	ponePoints := ponePlayer.CountHand(cut, false)
-	/*poneHand := ponePlayer.GetHand()
-	ponePoints := poneHand.ScoreBreakdown(cut, false)
-	fmt.Printf("%s: %s", ponePlayer.GetName(), poneHand)
-	fmt.Printf(" (%d points)\n", ponePoints.Total)
-	ponePoints.Print()
-	*/
-
-	// Player acknowledges points from Computer when it shows first
-	fmt.Println()
+	// Dealer Player acknowledges the points counted from Pone Computer
 	game.Players[dealer].EnterToContinue()
-
-	game.AddPoints(pone, ponePoints) //.Total)
+	game.AddPoints(pone, ponePoints)
 	if game.GameWon {
 		game.CelebrateWinner(pone)
 		return
@@ -223,30 +231,16 @@ func (game *Game) PlayRound() {
 	dealPlayer := game.Players[dealer]
 	fmt.Printf("Cut Card: %s\n", cut)
 	dealerPoints := dealPlayer.CountHand(cut, false)
-	/*dealerHand := dealPlayer.GetHand()
-	dealerPoints := dealerHand.ScoreBreakdown(cut, false)
-	fmt.Printf("%s: %s", dealPlayer.GetName(), dealerHand)
-	fmt.Printf(" (%d points)\n", dealerPoints.Total)
-	dealerPoints.Print()
-	*/
-
 	game.AddPoints(dealer, dealerPoints)
 	if game.GameWon {
 		game.CelebrateWinner(dealer)
 		return
 	}
 
-	// Score dealer's crib
-	// set hand of dealer and count again
+	// Score dealer's crib, by overwriting their Hand and counting again
 	dealPlayer.SetHand(crib)
 	cribPoints := dealPlayer.CountHand(cut, true)
-	/*cribPoints := crib.ScoreBreakdown(cut, true)
-	fmt.Printf("%s (Crib): %s", dealPlayer.GetName(), crib)
-	fmt.Printf(" (%d points)\n", cribPoints.Total)
-	cribPoints.Print()
-	*/
-
-	game.AddPoints(dealer, cribPoints) //.Total)
+	game.AddPoints(dealer, cribPoints)
 	if game.GameWon {
 		game.CelebrateWinner(dealer)
 		return
@@ -254,106 +248,9 @@ func (game *Game) PlayRound() {
 
 	fmt.Println()
 	game.PrintPoints("SUMMARY (SHOW)", before0, before1)
-
-	fmt.Println()
 	game.Players[0].EnterToContinue()
 	game.Players[1].EnterToContinue()
 	fmt.Println()
-}
-
-// Players try to place all of their cards on the pile
-// Once the score goes above 31, start a new pile
-func (game *Game) StartPegging() {
-	dealer := game.Dealer
-	players := game.Players
-	linebreak := strings.Repeat("-", 30)
-
-	state := PegState{
-		Sum:      0,
-		Turn:     1 - dealer, // pone places first card
-		CardPile: make([]Card, 0),
-	}
-
-	fmt.Printf("(Pegging Pile 1)\n")
-	for !EmptyHands(players) {
-		//fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
-		// assume another skip if Player previously passed
-		if state.Passed[state.Turn] {
-			//fmt.Printf("%s says GO\n\n", players[state.Turn])
-			state.Turn = 1 - state.Turn
-			continue
-		}
-
-		fmt.Printf("Sum: %d\n", state.Sum)
-		for _, c := range state.CardPile {
-			fmt.Printf("%s ", c)
-		}
-		fmt.Println("[?]")
-
-		card, passed := players[state.Turn].PlayPegCard(state)
-		if passed {
-			fmt.Printf("%s says GO", players[state.Turn])
-			state.Passed[state.Turn] = true
-		} else {
-			fmt.Printf("%s plays %s", players[state.Turn], card)
-			points, comment := ScorePeggingPlay(state, card)
-			state.AddCard(card)
-			if points > 0 {
-				fmt.Print(comment)
-				game.AddPoints(state.Turn, points)
-				if game.GameWon {
-					game.CelebrateWinner(state.Turn)
-					return
-				}
-			}
-		}
-
-		if state.ShouldReset() {
-			// give points for last card (31 is included in ScorePeggingPlay)
-			if state.Sum != 31 {
-				fmt.Println()
-				/*fmt.Printf("\nSum: %d\n", state.Sum)
-				for _, c := range state.CardPile {
-					fmt.Printf("%s ", c)
-				}
-				*/
-				fmt.Printf("\n%s scores +1 [Last Card]", players[state.LastPlayer])
-				game.AddPoints(state.LastPlayer, 1)
-				if game.GameWon {
-					game.CelebrateWinner(state.LastPlayer)
-					return
-				}
-			}
-			fmt.Printf("\n\n")
-			state.Reset()
-			if !EmptyHands(players) {
-				fmt.Printf("(Pegging Pile %d)\n", state.PileNum+1)
-			}
-		} else {
-			fmt.Printf("\n%s\n", linebreak)
-		}
-
-		state.Turn = 1 - state.Turn
-	}
-
-	//fmt.Printf("\nSum: %d\n", state.Sum)
-	/*for _, c := range state.CardPile {
-		fmt.Printf("%s ", c)
-	}
-	*/
-	fmt.Println(state.CardPile)
-	fmt.Printf("\nAll cards have been played!\n")
-
-	if state.Sum != 0 {
-		// the loop ended after both hands are empty
-		// sum can be zero after 31, or if both Players Go
-		fmt.Printf("%s scores +1 [Last Card]\n\n", players[state.LastPlayer])
-		game.AddPoints(state.LastPlayer, 1)
-		if game.GameWon {
-			game.CelebrateWinner(state.LastPlayer)
-			return
-		}
-	}
 }
 
 // ------------------------------------------------------------ //

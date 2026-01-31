@@ -5,14 +5,12 @@ import (
 	"strings"
 )
 
-// Player Hand from Deck
+// Player Hand from a Deck
 type Hand []Card
 
 func (h Hand) Print(name string) {
 	fmt.Printf("%s: ", name)
 	for i := range len(h) {
-		//fmt.Print(h[i].Rank.String())
-		//fmt.Print(h[i].Suit.String() + "  ")
 		fmt.Printf("%s ", h[i])
 	}
 	fmt.Println()
@@ -21,11 +19,9 @@ func (h Hand) Print(name string) {
 func (h Hand) String() string {
 	var ret strings.Builder
 	for _, card := range h {
-		//ret.WriteString(fmt.Sprintf("%s ", card))
 		fmt.Fprintf(&ret, "%s ", card)
 	}
 	// remove last space
-	//return ret.String()[:2*len(h)-1]
 	return strings.TrimRight(ret.String(), " ")
 }
 
@@ -41,10 +37,7 @@ func (h Hand) Choose(k int) []Hand {
 			result = append(result, hh)
 			return
 		}
-		// 0..2, {}
-		// 1..1, {h[0]}
 		for i := start; i <= len(h)-(k-len(current)); i++ {
-			// 2 - len(current)
 			helper(i+1, append(current, h[i]))
 		}
 	}
@@ -71,8 +64,6 @@ func (hand Hand) Split(out int) []DiscardOption {
 	for _, keep := range keepList {
 		// figure out the 2 discarded cards
 		discard := difference(hand, keep)
-		// Expected Value of 0 is unused
-		// It is ignored or separately set by the caller of Split
 		options = append(options, DiscardOption{keep, discard})
 	}
 
